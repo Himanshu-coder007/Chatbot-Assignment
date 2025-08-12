@@ -129,9 +129,10 @@
       color: #666;
       margin-left: 5px;
     }
-    .interrupt-btn {
-      background-color: #ff5722;
-      margin-left: 10px;
+    .pause-icon {
+      font-size: 24px;
+      margin-right: 5px;
+      vertical-align: middle;
     }
   </style>
 </head>
@@ -144,9 +145,6 @@
   <div>
     <button id="toggleRecording">
       <span class="mic-icon">🎤</span> Tap to speak
-    </button>
-    <button id="interruptBtn" class="interrupt-btn" disabled>
-      ✋ Interrupt
     </button>
   </div>
   
@@ -173,13 +171,13 @@
 
     // DOM elements
     const toggleRecordingBtn = document.getElementById("toggleRecording");
-    const interruptBtn = document.getElementById("interruptBtn");
     const statusEl = document.getElementById("status");
     const conversationEl = document.getElementById("conversation");
 
     // Constants
     const SILENCE_THRESHOLD = 1500; // 1.5 seconds of silence to stop recording
     const AUDIO_LEVEL_THRESHOLD = 0.02; // Minimum audio level to consider as speech
+    const INTERRUPTION_THRESHOLD = 0.1; // Higher threshold for interruption detection
 
     // Initialize
     window.addEventListener('DOMContentLoaded', () => {
@@ -188,7 +186,7 @@
       
       // Initial greeting
       setTimeout(() => {
-        const greeting = "Hello! I'm your Revolt Motors assistant. Ask me anything about our electric motorcycles in any language. You can interrupt me anytime by tapping the interrupt button or speaking while I'm responding.";
+        const greeting = "Hello! I'm your Revolt Motors assistant. Ask me anything about our electric motorcycles in any language. You can interrupt me anytime by speaking while I'm responding.";
         addMessageToConversation(greeting, false);
         speakText(greeting, 'en-US');
       }, 1000);
@@ -198,30 +196,21 @@
     toggleRecordingBtn.addEventListener("click", async () => {
       if (isRecording) {
         await stopRecording();
+      } else if (isSpeaking) {
+        // Pause the speech
+        synth.cancel();
+        isSpeaking = false;
+        toggleRecordingBtn.innerHTML = '<span class="mic-icon">🎤</span> Tap to speak';
+        statusEl.textContent = "Speech paused. Tap to speak or wait for me to continue.";
       } else {
         await startRecording();
       }
     });
 
-    // Interrupt button handler
-    interruptBtn.addEventListener("click", () => {
-      if (isSpeaking) {
-        shouldInterrupt = true;
-        synth.cancel();
-        statusEl.textContent = "Interrupted. I'm listening to you now...";
-        interruptBtn.disabled = true;
-        
-        // Start recording immediately after interruption
-        if (!isRecording) {
-          startRecording();
-        }
-      }
-    });
-
-    // Start recording with auto-stop on silence
+    // Start recording with auto-stop on silence and interruption detection
     async function startRecording() {
       try {
-        // If we're currently speaking, interrupt it
+        // If we're currently speaking, prepare to interrupt
         if (isSpeaking) {
           shouldInterrupt = true;
           synth.cancel();
@@ -229,7 +218,6 @@
 
         isRecording = true;
         toggleRecordingBtn.innerHTML = '<span class="mic-icon pulse">🎤</span> Listening...';
-        interruptBtn.disabled = true;
         statusEl.textContent = "Listening... (I'll stop automatically when you finish speaking)";
         
         // Clear any previous recording
@@ -238,7 +226,7 @@
         // Get audio stream
         stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         
-        // Set up audio context for silence detection
+        // Set up audio context for silence and interruption detection
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
         const source = audioContext.createMediaStreamSource(stream);
         
@@ -247,7 +235,7 @@
         source.connect(processor);
         processor.connect(audioContext.destination);
         
-        // Analyze audio level for silence detection
+        // Analyze audio level for silence and interruption detection
         processor.onaudioprocess = (e) => {
           const input = e.inputBuffer.getChannelData(0);
           let sum = 0;
@@ -258,10 +246,18 @@
           
           const average = sum / input.length;
           
-          if (average > AUDIO_LEVEL_THRESHOLD) {
+          if (average > (isSpeaking ? INTERRUPTION_THRESHOLD : AUDIO_LEVEL_THRESHOLD)) {
             lastSoundTime = Date.now();
             clearTimeout(silenceTimer);
-            silenceTimer = setTimeout(stopRecording, SILENCE_THRESHOLD);
+            
+            // If we're speaking and user starts talking, interrupt immediately
+            if (isSpeaking && average > INTERRUPTION_THRESHOLD) {
+              shouldInterrupt = true;
+              synth.cancel();
+              statusEl.textContent = "I heard you, please continue...";
+            } else {
+              silenceTimer = setTimeout(stopRecording, SILENCE_THRESHOLD);
+            }
           }
         };
         
@@ -346,9 +342,18 @@
     // Reset UI after recording/processing
     function resetRecordingState() {
       isRecording = false;
-      toggleRecordingBtn.innerHTML = '<span class="mic-icon">🎤</span> Tap to speak';
       toggleRecordingBtn.disabled = false;
-      statusEl.textContent = "Ready for your next question";
+      
+      // Update button based on whether we're speaking or not
+      if (isSpeaking) {
+        toggleRecordingBtn.innerHTML = '<span class="pause-icon">⏸</span> Pause';
+      } else {
+        toggleRecordingBtn.innerHTML = '<span class="mic-icon">🎤</span> Tap to speak';
+      }
+      
+      if (!isSpeaking) {
+        statusEl.textContent = "Ready for your next question";
+      }
     }
 
     // Add message to conversation display
@@ -389,6 +394,7 @@
 
       // Cancel any ongoing speech
       synth.cancel();
+      shouldInterrupt = false;
       
       // Create a new utterance
       utterance = new SpeechSynthesisUtterance(text);
@@ -417,21 +423,19 @@
       utterance.pitch = 1.0;
       utterance.volume = 1.0;
       
-      // Set speaking state
+      // Set speaking state and update UI
       isSpeaking = true;
-      shouldInterrupt = false;
-      interruptBtn.disabled = false;
-      statusEl.textContent = "Speaking response... (tap Interrupt to stop me)";
+      toggleRecordingBtn.innerHTML = '<span class="pause-icon">⏸</span> Pause';
+      statusEl.textContent = "Speaking response... (you can interrupt by speaking)";
       
       // Event handlers for the utterance
       utterance.onstart = () => {
         isSpeaking = true;
-        interruptBtn.disabled = false;
       };
       
       utterance.onend = () => {
         isSpeaking = false;
-        interruptBtn.disabled = true;
+        toggleRecordingBtn.innerHTML = '<span class="mic-icon">🎤</span> Tap to speak';
         if (!shouldInterrupt) {
           statusEl.textContent = "Ready for your next question";
         }
@@ -440,7 +444,7 @@
       utterance.onerror = (event) => {
         console.error("Speech synthesis error:", event);
         isSpeaking = false;
-        interruptBtn.disabled = true;
+        toggleRecordingBtn.innerHTML = '<span class="mic-icon">🎤</span> Tap to speak';
         if (!shouldInterrupt) {
           statusEl.textContent = "Error speaking response";
         }
