@@ -69,6 +69,15 @@
       font-weight: bold;
       color: #e31937;
     }
+    .voice-controls {
+      margin-top: 10px;
+      display: flex;
+      gap: 10px;
+    }
+    .voice-controls button {
+      padding: 5px 10px;
+      font-size: 0.8em;
+    }
   </style>
 </head>
 <body>
@@ -82,21 +91,102 @@
     <button id="stopRecording" disabled>Stop Recording</button>
   </div>
   <div id="status">Ready to record your question about Revolt Motors</div>
-  <audio id="audioPlayer" controls></audio>
   <div id="conversation"></div>
+  <div class="voice-controls">
+    <button id="playResponse" disabled>Play Response</button>
+    <button id="pauseResponse" disabled>Pause</button>
+    <button id="stopResponse" disabled>Stop</button>
+  </div>
 
   <script>
     let mediaRecorder;
     let audioChunks = [];
     let conversationId = null;
+    let synth = window.speechSynthesis;
+    let utterance = null;
 
     document.getElementById("startRecording").addEventListener("click", startRecording);
     document.getElementById("stopRecording").addEventListener("click", stopRecording);
+    document.getElementById("playResponse").addEventListener("click", playResponse);
+    document.getElementById("pauseResponse").addEventListener("click", pauseResponse);
+    document.getElementById("stopResponse").addEventListener("click", stopResponse);
 
     // Initial bot greeting
     window.addEventListener('DOMContentLoaded', () => {
-      addMessageToConversation("Hello! I'm your Revolt Motors assistant. Ask me anything about our electric motorcycles.", false);
+      const greeting = "Hello! I'm your Revolt Motors assistant. Ask me anything about our electric motorcycles.";
+      addMessageToConversation(greeting, false);
+      speakText(greeting);
     });
+
+    function speakText(text) {
+      // Cancel any ongoing speech
+      synth.cancel();
+      
+      // Create a new utterance
+      utterance = new SpeechSynthesisUtterance(text);
+      
+      // Configure voice options
+      const voices = synth.getVoices();
+      const preferredVoice = voices.find(voice => 
+        voice.name.includes('English') || voice.lang.includes('en')
+      );
+      if (preferredVoice) {
+        utterance.voice = preferredVoice;
+      }
+      
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      utterance.volume = 1.0;
+      
+      // Enable/disable controls based on speech state
+      utterance.onstart = () => {
+        document.getElementById("playResponse").disabled = true;
+        document.getElementById("pauseResponse").disabled = false;
+        document.getElementById("stopResponse").disabled = false;
+      };
+      
+      utterance.onpause = () => {
+        document.getElementById("playResponse").disabled = false;
+        document.getElementById("pauseResponse").disabled = true;
+        document.getElementById("stopResponse").disabled = false;
+      };
+      
+      utterance.onresume = () => {
+        document.getElementById("playResponse").disabled = true;
+        document.getElementById("pauseResponse").disabled = false;
+        document.getElementById("stopResponse").disabled = false;
+      };
+      
+      utterance.onend = () => {
+        document.getElementById("playResponse").disabled = false;
+        document.getElementById("pauseResponse").disabled = true;
+        document.getElementById("stopResponse").disabled = true;
+      };
+      
+      // Speak the text
+      synth.speak(utterance);
+    }
+
+    function playResponse() {
+      if (synth.paused) {
+        synth.resume();
+      } else {
+        const lastBotMessage = document.querySelector('.bot-message:last-child');
+        if (lastBotMessage) {
+          speakText(lastBotMessage.textContent);
+        }
+      }
+    }
+
+    function pauseResponse() {
+      if (synth.speaking) {
+        synth.pause();
+      }
+    }
+
+    function stopResponse() {
+      synth.cancel();
+    }
 
     async function startRecording() {
       try {
@@ -178,6 +268,9 @@
           addMessageToConversation("(Your question about Revolt Motors)", true);
           addMessageToConversation(data.text, false);
           document.getElementById("status").textContent = "Ready for your next question";
+          
+          // Speak the response
+          speakText(data.text);
         } else {
           throw new Error("No response from the assistant");
         }
@@ -187,6 +280,13 @@
       } finally {
         resetButtons();
       }
+    }
+
+    // Load voices when they become available
+    if (speechSynthesis.onvoiceschanged !== undefined) {
+      speechSynthesis.onvoiceschanged = () => {
+        console.log("Voices loaded");
+      };
     }
   </script>
 </body>
