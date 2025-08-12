@@ -70,14 +70,25 @@ app.post("/api/audio", upload.single("audio"), async (req, res) => {
     const history = conversationHistory.get(conversationId) || [];
 
     // Get the generative model
-    const model = genAI.getGenerativeModel({
-      model: modelName,
-      systemInstruction: SYSTEM_INSTRUCTIONS,
-    });
+    const model = genAI.getGenerativeModel({ model: modelName });
 
-    // Start chat with history
+    // Start chat with history and system instructions
     const chat = model.startChat({
-      history: history,
+      history: [
+        {
+          role: "user",
+          parts: [{ text: SYSTEM_INSTRUCTIONS }],
+        },
+        {
+          role: "model",
+          parts: [
+            {
+              text: "Understood. I will provide concise information about Revolt Motors in the requested language.",
+            },
+          ],
+        },
+        ...history,
+      ],
       generationConfig: {
         maxOutputTokens: 150,
       },
@@ -102,8 +113,7 @@ app.post("/api/audio", upload.single("audio"), async (req, res) => {
     const language = isHindi ? "hi-IN" : "en-US";
 
     // Update conversation history
-    const newHistory = await chat.getHistory();
-    conversationHistory.set(conversationId, newHistory);
+    conversationHistory.set(conversationId, await chat.getHistory());
 
     // Send response with language info
     res.json({
@@ -115,14 +125,8 @@ app.post("/api/audio", upload.single("audio"), async (req, res) => {
     console.error("Error processing audio:", error);
     res.status(500).json({
       error: "Error processing audio",
-      details: error.message,
     });
   }
-});
-
-// Health check endpoint
-app.get("/health", (req, res) => {
-  res.status(200).json({ status: "healthy" });
 });
 
 // Start server

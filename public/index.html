@@ -1,3 +1,7 @@
+
+
+
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -134,16 +138,6 @@
       margin-right: 5px;
       vertical-align: middle;
     }
-    .timestamp {
-      font-size: 0.7em;
-      color: #999;
-      margin-top: 2px;
-    }
-    .latency-indicator {
-      font-size: 0.8em;
-      color: #666;
-      margin-left: 5px;
-    }
   </style>
 </head>
 <body>
@@ -178,7 +172,6 @@
     let voicesLoaded = false;
     let isSpeaking = false;
     let shouldInterrupt = false;
-    let latencyStartTime = 0;
 
     // DOM elements
     const toggleRecordingBtn = document.getElementById("toggleRecording");
@@ -321,9 +314,6 @@
           formData.append("conversationId", conversationId);
         }
 
-        // Start latency measurement
-        latencyStartTime = Date.now();
-
         const response = await fetch("/api/audio", {
           method: "POST",
           body: formData
@@ -338,8 +328,7 @@
 
         if (data.text) {
           conversationId = data.conversationId;
-          const latency = Date.now() - latencyStartTime;
-          addMessageToConversation(data.text, false, data.language, latency);
+          addMessageToConversation(data.text, false, data.language);
           
           // Speak the response with the detected language
           speakText(data.text, data.language);
@@ -372,31 +361,17 @@
     }
 
     // Add message to conversation display
-    function addMessageToConversation(text, isUser, language, latency) {
+    function addMessageToConversation(text, isUser, language) {
       const messageDiv = document.createElement("div");
       messageDiv.className = `message ${isUser ? 'user-message' : 'bot-message'}`;
       messageDiv.textContent = text;
       
-      // Add metadata
-      const metaDiv = document.createElement("div");
-      metaDiv.className = "timestamp";
-      
       if (!isUser && language) {
+        messageDiv.dataset.lang = language;
         const langIndicator = document.createElement("span");
         langIndicator.className = "language-indicator";
-        langIndicator.textContent = `Language: ${language}`;
-        metaDiv.appendChild(langIndicator);
-      }
-      
-      if (!isUser && latency) {
-        const latencyIndicator = document.createElement("span");
-        latencyIndicator.className = "latency-indicator";
-        latencyIndicator.textContent = `Response time: ${latency}ms`;
-        metaDiv.appendChild(latencyIndicator);
-      }
-      
-      if (metaDiv.childNodes.length > 0) {
-        messageDiv.appendChild(metaDiv);
+        langIndicator.textContent = `(${language})`;
+        messageDiv.appendChild(langIndicator);
       }
       
       conversationEl.appendChild(messageDiv);
@@ -488,3 +463,4 @@
   </script>
 </body>
 </html>
+
