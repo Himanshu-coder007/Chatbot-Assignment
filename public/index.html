@@ -129,6 +129,10 @@
       color: #666;
       margin-left: 5px;
     }
+    .interrupt-btn {
+      background-color: #ff5722;
+      margin-left: 10px;
+    }
   </style>
 </head>
 <body>
@@ -140,6 +144,9 @@
   <div>
     <button id="toggleRecording">
       <span class="mic-icon">🎤</span> Tap to speak
+    </button>
+    <button id="interruptBtn" class="interrupt-btn" disabled>
+      ✋ Interrupt
     </button>
   </div>
   
@@ -161,9 +168,12 @@
     let stream;
     let lastSoundTime = 0;
     let voicesLoaded = false;
+    let isSpeaking = false;
+    let shouldInterrupt = false;
 
     // DOM elements
     const toggleRecordingBtn = document.getElementById("toggleRecording");
+    const interruptBtn = document.getElementById("interruptBtn");
     const statusEl = document.getElementById("status");
     const conversationEl = document.getElementById("conversation");
 
@@ -178,7 +188,7 @@
       
       // Initial greeting
       setTimeout(() => {
-        const greeting = "Hello! I'm your Revolt Motors assistant. Ask me anything about our electric motorcycles in any language.";
+        const greeting = "Hello! I'm your Revolt Motors assistant. Ask me anything about our electric motorcycles in any language. You can interrupt me anytime by tapping the interrupt button or speaking while I'm responding.";
         addMessageToConversation(greeting, false);
         speakText(greeting, 'en-US');
       }, 1000);
@@ -193,11 +203,33 @@
       }
     });
 
+    // Interrupt button handler
+    interruptBtn.addEventListener("click", () => {
+      if (isSpeaking) {
+        shouldInterrupt = true;
+        synth.cancel();
+        statusEl.textContent = "Interrupted. I'm listening to you now...";
+        interruptBtn.disabled = true;
+        
+        // Start recording immediately after interruption
+        if (!isRecording) {
+          startRecording();
+        }
+      }
+    });
+
     // Start recording with auto-stop on silence
     async function startRecording() {
       try {
+        // If we're currently speaking, interrupt it
+        if (isSpeaking) {
+          shouldInterrupt = true;
+          synth.cancel();
+        }
+
         isRecording = true;
         toggleRecordingBtn.innerHTML = '<span class="mic-icon pulse">🎤</span> Listening...';
+        interruptBtn.disabled = true;
         statusEl.textContent = "Listening... (I'll stop automatically when you finish speaking)";
         
         // Clear any previous recording
@@ -385,9 +417,33 @@
       utterance.pitch = 1.0;
       utterance.volume = 1.0;
       
-      // Error handling
+      // Set speaking state
+      isSpeaking = true;
+      shouldInterrupt = false;
+      interruptBtn.disabled = false;
+      statusEl.textContent = "Speaking response... (tap Interrupt to stop me)";
+      
+      // Event handlers for the utterance
+      utterance.onstart = () => {
+        isSpeaking = true;
+        interruptBtn.disabled = false;
+      };
+      
+      utterance.onend = () => {
+        isSpeaking = false;
+        interruptBtn.disabled = true;
+        if (!shouldInterrupt) {
+          statusEl.textContent = "Ready for your next question";
+        }
+      };
+      
       utterance.onerror = (event) => {
         console.error("Speech synthesis error:", event);
+        isSpeaking = false;
+        interruptBtn.disabled = true;
+        if (!shouldInterrupt) {
+          statusEl.textContent = "Error speaking response";
+        }
       };
       
       // Speak the text
