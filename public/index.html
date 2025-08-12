@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Gemini Voice Chat</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 600px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      button {
+        padding: 10px 15px;
+        background-color: #4285f4;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+        margin: 5px;
+      }
+      button:disabled {
+        background-color: #cccccc;
+      }
+      #audioPlayer {
+        width: 100%;
+        margin-top: 20px;
+      }
+      #status {
+        margin: 10px 0;
+        font-style: italic;
+        color: #666;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Gemini Voice Chat</h1>
+    <div>
+      <button id="startRecording">Start Recording</button>
+      <button id="stopRecording" disabled>Stop Recording</button>
+    </div>
+    <div id="status">Ready to record</div>
+    <audio id="audioPlayer" controls></audio>
+
+    <script>
+      let mediaRecorder;
+      let audioChunks = [];
+      let conversationId = null;
+
+      document
+        .getElementById("startRecording")
+        .addEventListener("click", startRecording);
+      document
+        .getElementById("stopRecording")
+        .addEventListener("click", stopRecording);
+
+      async function startRecording() {
+        try {
+          document.getElementById("status").textContent = "Recording...";
+          document.getElementById("startRecording").disabled = true;
+          document.getElementById("stopRecording").disabled = false;
+
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: true,
+          });
+          mediaRecorder = new MediaRecorder(stream);
+          audioChunks = [];
+
+          mediaRecorder.ondataavailable = (e) => {
+            audioChunks.push(e.data);
+          };
+
+          mediaRecorder.onstop = async () => {
+            const audioBlob = new Blob(audioChunks, {
+              type: "audio/webm;codecs=opus",
+            });
+            await sendAudioToServer(audioBlob);
+          };
+
+          mediaRecorder.start();
+        } catch (error) {
+          console.error("Error starting recording:", error);
+          document.getElementById("status").textContent =
+            "Error: " + error.message;
+          resetButtons();
+        }
+      }
+
+      function stopRecording() {
+        if (mediaRecorder && mediaRecorder.state !== "inactive") {
+          mediaRecorder.stop();
+          document.getElementById("status").textContent = "Processing...";
+          document.getElementById("stopRecording").disabled = true;
+
+          // Stop all tracks
+          mediaRecorder.stream.getTracks().forEach((track) => track.stop());
+        }
+      }
+
+      function resetButtons() {
+        document.getElementById("startRecording").disabled = false;
+        document.getElementById("stopRecording").disabled = true;
+      }
+
+      async function sendAudioToServer(audioBlob) {
+    try {
+        const formData = new FormData();
+        formData.append('audio', audioBlob, 'recording.webm');
+        if (conversationId) {
+            formData.append('conversationId', conversationId);
+        }
+        
+        console.log("Sending audio file of size:", audioBlob.size);
+
+        const response = await fetch('/api/audio', {
+            method: 'POST',
+            body: formData // No headers needed for FormData
+        });
+        
+        if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || 'Server error');
+        }
+        
+        const data = await response.json();
+        console.log("Received response:", data);
+        
+        if (data.audio) {
+            conversationId = data.conversationId;
+            const audioPlayer = document.getElementById('audioPlayer');
+            audioPlayer.src = `data:audio/mpeg;base64,${data.audio}`;
+            audioPlayer.play();
+        } else {
+            throw new Error('No audio in response');
+        }
+    } catch (error) {
+        console.error('Error sending audio:', error);
+        document.getElementById('status').textContent = 'Error: ' + error.message;
+    } finally {
+        resetButtons();
+    }
+}
+    </script>
+  </body>
+</html>
