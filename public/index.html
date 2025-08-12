@@ -1,146 +1,193 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Gemini Voice Chat</title>
-    <style>
-      body {
-        font-family: Arial, sans-serif;
-        max-width: 600px;
-        margin: 0 auto;
-        padding: 20px;
-      }
-      button {
-        padding: 10px 15px;
-        background-color: #4285f4;
-        color: white;
-        border: none;
-        border-radius: 4px;
-        cursor: pointer;
-        margin: 5px;
-      }
-      button:disabled {
-        background-color: #cccccc;
-      }
-      #audioPlayer {
-        width: 100%;
-        margin-top: 20px;
-      }
-      #status {
-        margin: 10px 0;
-        font-style: italic;
-        color: #666;
-      }
-    </style>
-  </head>
-  <body>
-    <h1>Gemini Voice Chat</h1>
-    <div>
-      <button id="startRecording">Start Recording</button>
-      <button id="stopRecording" disabled>Stop Recording</button>
-    </div>
-    <div id="status">Ready to record</div>
-    <audio id="audioPlayer" controls></audio>
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Revolt Motors Assistant</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 20px;
+      background-color: #f5f5f5;
+    }
+    .header {
+      background-color: #e31937;
+      color: white;
+      padding: 15px;
+      border-radius: 5px;
+      text-align: center;
+      margin-bottom: 20px;
+    }
+    button {
+      padding: 10px 15px;
+      background-color: #e31937;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      margin: 5px;
+      font-weight: bold;
+    }
+    button:disabled {
+      background-color: #cccccc;
+    }
+    #audioPlayer {
+      width: 100%;
+      margin-top: 20px;
+    }
+    #status {
+      margin: 10px 0;
+      font-style: italic;
+      color: #666;
+    }
+    #conversation {
+      margin-top: 20px;
+      border: 1px solid #ddd;
+      padding: 10px;
+      border-radius: 5px;
+      max-height: 300px;
+      overflow-y: auto;
+      background-color: white;
+    }
+    .message {
+      margin: 5px 0;
+      padding: 8px;
+      border-radius: 5px;
+    }
+    .user-message {
+      background-color: #e3f2fd;
+      text-align: right;
+    }
+    .bot-message {
+      background-color: #f0f0f0;
+      text-align: left;
+      border-left: 3px solid #e31937;
+    }
+    .revolt-logo {
+      font-weight: bold;
+      color: #e31937;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1><span class="revolt-logo">REVOLT</span> Motors Assistant</h1>
+    <p>Ask me anything about Revolt electric motorcycles</p>
+  </div>
+  
+  <div>
+    <button id="startRecording">Start Recording</button>
+    <button id="stopRecording" disabled>Stop Recording</button>
+  </div>
+  <div id="status">Ready to record your question about Revolt Motors</div>
+  <audio id="audioPlayer" controls></audio>
+  <div id="conversation"></div>
 
-    <script>
-      let mediaRecorder;
-      let audioChunks = [];
-      let conversationId = null;
+  <script>
+    let mediaRecorder;
+    let audioChunks = [];
+    let conversationId = null;
 
-      document
-        .getElementById("startRecording")
-        .addEventListener("click", startRecording);
-      document
-        .getElementById("stopRecording")
-        .addEventListener("click", stopRecording);
+    document.getElementById("startRecording").addEventListener("click", startRecording);
+    document.getElementById("stopRecording").addEventListener("click", stopRecording);
 
-      async function startRecording() {
-        try {
-          document.getElementById("status").textContent = "Recording...";
-          document.getElementById("startRecording").disabled = true;
-          document.getElementById("stopRecording").disabled = false;
+    // Initial bot greeting
+    window.addEventListener('DOMContentLoaded', () => {
+      addMessageToConversation("Hello! I'm your Revolt Motors assistant. Ask me anything about our electric motorcycles.", false);
+    });
 
-          const stream = await navigator.mediaDevices.getUserMedia({
-            audio: true,
+    async function startRecording() {
+      try {
+        document.getElementById("status").textContent = "Recording your question...";
+        document.getElementById("startRecording").disabled = true;
+        document.getElementById("stopRecording").disabled = false;
+
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(stream);
+        audioChunks = [];
+
+        mediaRecorder.ondataavailable = (e) => {
+          audioChunks.push(e.data);
+        };
+
+        mediaRecorder.onstop = async () => {
+          const audioBlob = new Blob(audioChunks, {
+            type: "audio/webm"
           });
-          mediaRecorder = new MediaRecorder(stream);
-          audioChunks = [];
+          await sendAudioToServer(audioBlob);
+        };
 
-          mediaRecorder.ondataavailable = (e) => {
-            audioChunks.push(e.data);
-          };
-
-          mediaRecorder.onstop = async () => {
-            const audioBlob = new Blob(audioChunks, {
-              type: "audio/webm;codecs=opus",
-            });
-            await sendAudioToServer(audioBlob);
-          };
-
-          mediaRecorder.start();
-        } catch (error) {
-          console.error("Error starting recording:", error);
-          document.getElementById("status").textContent =
-            "Error: " + error.message;
-          resetButtons();
-        }
+        mediaRecorder.start(100);
+      } catch (error) {
+        console.error("Error starting recording:", error);
+        document.getElementById("status").textContent = "Error: " + error.message;
+        resetButtons();
       }
+    }
 
-      function stopRecording() {
-        if (mediaRecorder && mediaRecorder.state !== "inactive") {
-          mediaRecorder.stop();
-          document.getElementById("status").textContent = "Processing...";
-          document.getElementById("stopRecording").disabled = true;
-
-          // Stop all tracks
-          mediaRecorder.stream.getTracks().forEach((track) => track.stop());
-        }
-      }
-
-      function resetButtons() {
-        document.getElementById("startRecording").disabled = false;
+    function stopRecording() {
+      if (mediaRecorder && mediaRecorder.state !== "inactive") {
+        mediaRecorder.stop();
+        document.getElementById("status").textContent = "Processing your question...";
         document.getElementById("stopRecording").disabled = true;
+        mediaRecorder.stream.getTracks().forEach((track) => track.stop());
       }
+    }
 
-      async function sendAudioToServer(audioBlob) {
-    try {
+    function resetButtons() {
+      document.getElementById("startRecording").disabled = false;
+      document.getElementById("stopRecording").disabled = true;
+    }
+
+    function addMessageToConversation(text, isUser) {
+      const conversationDiv = document.getElementById("conversation");
+      const messageDiv = document.createElement("div");
+      messageDiv.className = `message ${isUser ? 'user-message' : 'bot-message'}`;
+      messageDiv.textContent = text;
+      conversationDiv.appendChild(messageDiv);
+      conversationDiv.scrollTop = conversationDiv.scrollHeight;
+    }
+
+    async function sendAudioToServer(audioBlob) {
+      try {
+        document.getElementById("status").textContent = "Sending your question...";
+        
         const formData = new FormData();
-        formData.append('audio', audioBlob, 'recording.webm');
+        formData.append("audio", audioBlob, "recording.webm");
         if (conversationId) {
-            formData.append('conversationId', conversationId);
+          formData.append("conversationId", conversationId);
         }
-        
-        console.log("Sending audio file of size:", audioBlob.size);
 
-        const response = await fetch('/api/audio', {
-            method: 'POST',
-            body: formData // No headers needed for FormData
+        const response = await fetch("/api/audio", {
+          method: "POST",
+          body: formData
         });
-        
+
         if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || 'Server error');
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || `Server error: ${response.status}`);
         }
-        
+
         const data = await response.json();
         console.log("Received response:", data);
-        
-        if (data.audio) {
-            conversationId = data.conversationId;
-            const audioPlayer = document.getElementById('audioPlayer');
-            audioPlayer.src = `data:audio/mpeg;base64,${data.audio}`;
-            audioPlayer.play();
+
+        if (data.text) {
+          conversationId = data.conversationId;
+          addMessageToConversation("(Your question about Revolt Motors)", true);
+          addMessageToConversation(data.text, false);
+          document.getElementById("status").textContent = "Ready for your next question";
         } else {
-            throw new Error('No audio in response');
+          throw new Error("No response from the assistant");
         }
-    } catch (error) {
-        console.error('Error sending audio:', error);
-        document.getElementById('status').textContent = 'Error: ' + error.message;
-    } finally {
+      } catch (error) {
+        console.error("Error sending audio:", error);
+        document.getElementById("status").textContent = "Error: " + error.message;
+      } finally {
         resetButtons();
+      }
     }
-}
-    </script>
-  </body>
+  </script>
+</body>
 </html>
