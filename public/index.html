@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Revolt Motors Assistant</title>
+  <title>Revolt Motors Voice Assistant</title>
   <style>
     body {
       font-family: Arial, sans-serif;
@@ -33,14 +33,11 @@
     button:disabled {
       background-color: #cccccc;
     }
-    #audioPlayer {
-      width: 100%;
-      margin-top: 20px;
-    }
     #status {
       margin: 10px 0;
       font-style: italic;
       color: #666;
+      min-height: 20px;
     }
     #conversation {
       margin-top: 20px;
@@ -69,14 +66,63 @@
       font-weight: bold;
       color: #e31937;
     }
-    .voice-controls {
-      margin-top: 10px;
-      display: flex;
-      gap: 10px;
+    .mic-icon {
+      font-size: 24px;
+      margin-right: 5px;
+      vertical-align: middle;
     }
-    .voice-controls button {
-      padding: 5px 10px;
-      font-size: 0.8em;
+    .pulse {
+      animation: pulse-animation 1.5s infinite;
+    }
+    @keyframes pulse-animation {
+      0% { transform: scale(1); }
+      50% { transform: scale(1.2); }
+      100% { transform: scale(1); }
+    }
+    .thinking {
+      display: inline-block;
+      margin-left: 10px;
+    }
+    .dot-flashing {
+      position: relative;
+      width: 10px;
+      height: 10px;
+      border-radius: 5px;
+      background-color: #e31937;
+      color: #e31937;
+      animation: dot-flashing 1s infinite linear alternate;
+      animation-delay: 0.5s;
+    }
+    .dot-flashing::before, .dot-flashing::after {
+      content: "";
+      display: inline-block;
+      position: absolute;
+      top: 0;
+    }
+    .dot-flashing::before {
+      left: -15px;
+      width: 10px;
+      height: 10px;
+      border-radius: 5px;
+      background-color: #e31937;
+      color: #e31937;
+      animation: dot-flashing 1s infinite alternate;
+      animation-delay: 0s;
+    }
+    .dot-flashing::after {
+      left: 15px;
+      width: 10px;
+      height: 10px;
+      border-radius: 5px;
+      background-color: #e31937;
+      color: #e31937;
+      animation: dot-flashing 1s infinite alternate;
+      animation-delay: 1s;
+    }
+    @keyframes dot-flashing {
+      0% { opacity: 0.3; }
+      50% { opacity: 1; }
+      100% { opacity: 0.3; }
     }
     .language-indicator {
       font-size: 0.8em;
@@ -87,21 +133,19 @@
 </head>
 <body>
   <div class="header">
-    <h1><span class="revolt-logo">REVOLT</span> Motors Assistant</h1>
-    <p>Ask me anything about Revolt electric motorcycles</p>
+    <h1><span class="revolt-logo">REVOLT</span> Motors Voice Assistant</h1>
+    <p>Talk naturally about Revolt electric motorcycles</p>
   </div>
   
   <div>
-    <button id="startRecording">Start Recording</button>
-    <button id="stopRecording" disabled>Stop Recording</button>
+    <button id="toggleRecording">
+      <span class="mic-icon">🎤</span> Tap to speak
+    </button>
   </div>
-  <div id="status">Ready to record your question about Revolt Motors</div>
+  
+  <div id="status">Ready for your question</div>
+  
   <div id="conversation"></div>
-  <div class="voice-controls">
-    <button id="playResponse" disabled>Play Response</button>
-    <button id="pauseResponse" disabled>Pause</button>
-    <button id="stopResponse" disabled>Stop</button>
-  </div>
 
   <script>
     let mediaRecorder;
@@ -110,162 +154,127 @@
     let synth = window.speechSynthesis;
     let utterance = null;
     let currentLanguage = 'en-US';
+    let isRecording = false;
+    let silenceTimer;
+    let audioContext;
+    let processor;
+    let stream;
+    let lastSoundTime = 0;
+    let voicesLoaded = false;
 
-    document.getElementById("startRecording").addEventListener("click", startRecording);
-    document.getElementById("stopRecording").addEventListener("click", stopRecording);
-    document.getElementById("playResponse").addEventListener("click", playResponse);
-    document.getElementById("pauseResponse").addEventListener("click", pauseResponse);
-    document.getElementById("stopResponse").addEventListener("click", stopResponse);
+    // DOM elements
+    const toggleRecordingBtn = document.getElementById("toggleRecording");
+    const statusEl = document.getElementById("status");
+    const conversationEl = document.getElementById("conversation");
 
-    // Initial bot greeting
+    // Constants
+    const SILENCE_THRESHOLD = 1500; // 1.5 seconds of silence to stop recording
+    const AUDIO_LEVEL_THRESHOLD = 0.02; // Minimum audio level to consider as speech
+
+    // Initialize
     window.addEventListener('DOMContentLoaded', () => {
-      const greeting = "Hello! I'm your Revolt Motors assistant. Ask me anything about our electric motorcycles in any language.";
-      addMessageToConversation(greeting, false);
-      speakText(greeting, 'en-US');
+      // Load voices
+      loadVoices();
+      
+      // Initial greeting
+      setTimeout(() => {
+        const greeting = "Hello! I'm your Revolt Motors assistant. Ask me anything about our electric motorcycles in any language.";
+        addMessageToConversation(greeting, false);
+        speakText(greeting, 'en-US');
+      }, 1000);
     });
 
-    function speakText(text, lang) {
-      // Cancel any ongoing speech
-      synth.cancel();
-      
-      // Create a new utterance
-      utterance = new SpeechSynthesisUtterance(text);
-      
-      // Set language
-      utterance.lang = lang || currentLanguage;
-      
-      // Configure voice options
-      const voices = synth.getVoices();
-      const preferredVoice = voices.find(voice => 
-        voice.lang === utterance.lang || 
-        voice.lang.startsWith(utterance.lang.split('-')[0])
-      );
-      
-      if (preferredVoice) {
-        utterance.voice = preferredVoice;
+    // Toggle recording
+    toggleRecordingBtn.addEventListener("click", async () => {
+      if (isRecording) {
+        await stopRecording();
       } else {
-        console.warn(`No voice found for language ${utterance.lang}, using default`);
+        await startRecording();
       }
-      
-      utterance.rate = 1.0;
-      utterance.pitch = 1.0;
-      utterance.volume = 1.0;
-      
-      // Enable/disable controls based on speech state
-      utterance.onstart = () => {
-        document.getElementById("playResponse").disabled = true;
-        document.getElementById("pauseResponse").disabled = false;
-        document.getElementById("stopResponse").disabled = false;
-      };
-      
-      utterance.onpause = () => {
-        document.getElementById("playResponse").disabled = false;
-        document.getElementById("pauseResponse").disabled = true;
-        document.getElementById("stopResponse").disabled = false;
-      };
-      
-      utterance.onresume = () => {
-        document.getElementById("playResponse").disabled = true;
-        document.getElementById("pauseResponse").disabled = false;
-        document.getElementById("stopResponse").disabled = false;
-      };
-      
-      utterance.onend = () => {
-        document.getElementById("playResponse").disabled = false;
-        document.getElementById("pauseResponse").disabled = true;
-        document.getElementById("stopResponse").disabled = true;
-      };
-      
-      // Speak the text
-      synth.speak(utterance);
-    }
+    });
 
-    function playResponse() {
-      if (synth.paused) {
-        synth.resume();
-      } else {
-        const lastBotMessage = document.querySelector('.bot-message:last-child');
-        if (lastBotMessage) {
-          const lang = lastBotMessage.dataset.lang || 'en-US';
-          speakText(lastBotMessage.textContent, lang);
-        }
-      }
-    }
-
-    function pauseResponse() {
-      if (synth.speaking) {
-        synth.pause();
-      }
-    }
-
-    function stopResponse() {
-      synth.cancel();
-    }
-
+    // Start recording with auto-stop on silence
     async function startRecording() {
       try {
-        document.getElementById("status").textContent = "Recording your question...";
-        document.getElementById("startRecording").disabled = true;
-        document.getElementById("stopRecording").disabled = false;
-
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        mediaRecorder = new MediaRecorder(stream);
+        isRecording = true;
+        toggleRecordingBtn.innerHTML = '<span class="mic-icon pulse">🎤</span> Listening...';
+        statusEl.textContent = "Listening... (I'll stop automatically when you finish speaking)";
+        
+        // Clear any previous recording
         audioChunks = [];
-
+        
+        // Get audio stream
+        stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        
+        // Set up audio context for silence detection
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioContext.createMediaStreamSource(stream);
+        
+        // Create processor for analyzing audio level
+        processor = audioContext.createScriptProcessor(1024, 1, 1);
+        source.connect(processor);
+        processor.connect(audioContext.destination);
+        
+        // Analyze audio level for silence detection
+        processor.onaudioprocess = (e) => {
+          const input = e.inputBuffer.getChannelData(0);
+          let sum = 0;
+          
+          for (let i = 0; i < input.length; i++) {
+            sum += Math.abs(input[i]);
+          }
+          
+          const average = sum / input.length;
+          
+          if (average > AUDIO_LEVEL_THRESHOLD) {
+            lastSoundTime = Date.now();
+            clearTimeout(silenceTimer);
+            silenceTimer = setTimeout(stopRecording, SILENCE_THRESHOLD);
+          }
+        };
+        
+        // Set up media recorder
+        mediaRecorder = new MediaRecorder(stream);
+        
         mediaRecorder.ondataavailable = (e) => {
-          audioChunks.push(e.data);
+          if (e.data.size > 0) {
+            audioChunks.push(e.data);
+          }
         };
-
+        
         mediaRecorder.onstop = async () => {
-          const audioBlob = new Blob(audioChunks, {
-            type: "audio/webm"
-          });
-          await sendAudioToServer(audioBlob);
+          if (audioChunks.length > 0) {
+            const audioBlob = new Blob(audioChunks, { type: "audio/webm" });
+            await processUserAudio(audioBlob);
+          }
         };
-
-        mediaRecorder.start(100);
+        
+        mediaRecorder.start(100); // Collect data every 100ms
       } catch (error) {
         console.error("Error starting recording:", error);
-        document.getElementById("status").textContent = "Error: " + error.message;
-        resetButtons();
+        statusEl.textContent = "Error: " + error.message;
+        resetRecordingState();
       }
     }
 
-    function stopRecording() {
+    // Stop recording manually
+    async function stopRecording() {
       if (mediaRecorder && mediaRecorder.state !== "inactive") {
+        clearTimeout(silenceTimer);
         mediaRecorder.stop();
-        document.getElementById("status").textContent = "Processing your question...";
-        document.getElementById("stopRecording").disabled = true;
-        mediaRecorder.stream.getTracks().forEach((track) => track.stop());
+        processor?.disconnect();
+        stream?.getTracks().forEach(track => track.stop());
+        
+        statusEl.innerHTML = '<span class="thinking">Processing</span><div class="dot-flashing"></div>';
+        toggleRecordingBtn.disabled = true;
       }
     }
 
-    function resetButtons() {
-      document.getElementById("startRecording").disabled = false;
-      document.getElementById("stopRecording").disabled = true;
-    }
-
-    function addMessageToConversation(text, isUser, language) {
-      const conversationDiv = document.getElementById("conversation");
-      const messageDiv = document.createElement("div");
-      messageDiv.className = `message ${isUser ? 'user-message' : 'bot-message'}`;
-      messageDiv.textContent = text;
-      
-      if (!isUser && language) {
-        messageDiv.dataset.lang = language;
-        const langIndicator = document.createElement("span");
-        langIndicator.className = "language-indicator";
-        langIndicator.textContent = `(${language})`;
-        messageDiv.appendChild(langIndicator);
-      }
-      
-      conversationDiv.appendChild(messageDiv);
-      conversationDiv.scrollTop = conversationDiv.scrollHeight;
-    }
-
-    async function sendAudioToServer(audioBlob) {
+    // Process recorded audio and get AI response
+    async function processUserAudio(audioBlob) {
       try {
-        document.getElementById("status").textContent = "Sending your question...";
+        // Add user message placeholder
+        addMessageToConversation("(Your question about Revolt Motors)", true);
         
         const formData = new FormData();
         formData.append("audio", audioBlob, "recording.webm");
@@ -287,9 +296,7 @@
 
         if (data.text) {
           conversationId = data.conversationId;
-          addMessageToConversation("(Your question about Revolt Motors)", true);
           addMessageToConversation(data.text, false, data.language);
-          document.getElementById("status").textContent = "Ready for your next question";
           
           // Speak the response with the detected language
           speakText(data.text, data.language);
@@ -297,23 +304,98 @@
           throw new Error("No response from the assistant");
         }
       } catch (error) {
-        console.error("Error sending audio:", error);
-        document.getElementById("status").textContent = "Error: " + error.message;
+        console.error("Error processing audio:", error);
+        statusEl.textContent = "Error: " + error.message;
       } finally {
-        resetButtons();
+        resetRecordingState();
       }
     }
 
-    // Load voices when they become available
-    speechSynthesis.onvoiceschanged = function() {
-      console.log("Voices loaded:", speechSynthesis.getVoices());
-    };
+    // Reset UI after recording/processing
+    function resetRecordingState() {
+      isRecording = false;
+      toggleRecordingBtn.innerHTML = '<span class="mic-icon">🎤</span> Tap to speak';
+      toggleRecordingBtn.disabled = false;
+      statusEl.textContent = "Ready for your next question";
+    }
 
-    // Some browsers need this to load voices properly
-    setTimeout(() => {
-      const voices = speechSynthesis.getVoices();
-      console.log("Available voices:", voices);
-    }, 1000);
+    // Add message to conversation display
+    function addMessageToConversation(text, isUser, language) {
+      const messageDiv = document.createElement("div");
+      messageDiv.className = `message ${isUser ? 'user-message' : 'bot-message'}`;
+      messageDiv.textContent = text;
+      
+      if (!isUser && language) {
+        messageDiv.dataset.lang = language;
+        const langIndicator = document.createElement("span");
+        langIndicator.className = "language-indicator";
+        langIndicator.textContent = `(${language})`;
+        messageDiv.appendChild(langIndicator);
+      }
+      
+      conversationEl.appendChild(messageDiv);
+      conversationEl.scrollTop = conversationEl.scrollHeight;
+    }
+
+    // Load available voices
+    function loadVoices() {
+      // Some browsers need this delay to load voices properly
+      setTimeout(() => {
+        const voices = synth.getVoices();
+        console.log("Available voices:", voices);
+        voicesLoaded = true;
+      }, 1000);
+    }
+
+    // Speak text with proper language settings
+    function speakText(text, lang) {
+      // Wait for voices to be loaded
+      if (!voicesLoaded) {
+        setTimeout(() => speakText(text, lang), 500);
+        return;
+      }
+
+      // Cancel any ongoing speech
+      synth.cancel();
+      
+      // Create a new utterance
+      utterance = new SpeechSynthesisUtterance(text);
+      currentLanguage = lang || 'en-US';
+      utterance.lang = currentLanguage;
+      
+      // Configure voice
+      const voices = synth.getVoices();
+      let voice = voices.find(v => v.lang === currentLanguage);
+      
+      if (!voice) {
+        // Try to find a voice with just the language code (without country)
+        const langCode = currentLanguage.split('-')[0];
+        voice = voices.find(v => v.lang.startsWith(langCode));
+      }
+      
+      if (voice) {
+        utterance.voice = voice;
+        console.log("Using voice:", voice.name, "for language:", currentLanguage);
+      } else {
+        console.warn("No suitable voice found for language:", currentLanguage, "using default");
+      }
+      
+      // Natural sounding speech
+      utterance.rate = 1.0;
+      utterance.pitch = 1.0;
+      utterance.volume = 1.0;
+      
+      // Error handling
+      utterance.onerror = (event) => {
+        console.error("Speech synthesis error:", event);
+      };
+      
+      // Speak the text
+      synth.speak(utterance);
+    }
+
+    // Some browsers need this event to load voices
+    speechSynthesis.onvoiceschanged = loadVoices;
   </script>
 </body>
 </html>

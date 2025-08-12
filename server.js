@@ -14,7 +14,7 @@ const port = process.env.PORT || 3000;
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const modelName = "gemini-1.5-flash-latest";
 
-// System instructions to focus on Revolt Motors with multilingual support
+// System instructions
 const SYSTEM_INSTRUCTIONS = `
 You are an expert assistant specialized in Revolt Motors, the Indian electric motorcycle company. 
 Your responses should be exclusively about Revolt Motors and its products.
@@ -32,7 +32,7 @@ Key points to focus on:
 Important:
 1. Respond in the same language the question is asked in
 2. If the language cannot be determined, default to English
-3. For technical specifications, you may include English terms in parentheses
+3. Keep responses concise (1-2 sentences) for voice interaction
 4. Maintain professional and helpful tone in all languages
 
 If asked about other topics, politely respond that you specialize only in Revolt Motors.
@@ -42,8 +42,6 @@ If asked about other topics, politely respond that you specialize only in Revolt
 app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
-
-// Serve static files from the 'public' directory
 app.use(express.static("public"));
 
 // Route for the root URL
@@ -54,7 +52,6 @@ app.get("/", (req, res) => {
 // Store conversation history
 const conversationHistory = new Map();
 
-// Generate unique ID for each conversation
 function generateConversationId() {
   return Math.random().toString(36).substring(2, 15);
 }
@@ -86,12 +83,15 @@ app.post("/api/audio", upload.single("audio"), async (req, res) => {
           role: "model",
           parts: [
             {
-              text: "Understood. I will provide information about Revolt Motors in the requested language.",
+              text: "Understood. I will provide concise information about Revolt Motors in the requested language.",
             },
           ],
         },
         ...history,
       ],
+      generationConfig: {
+        maxOutputTokens: 150,
+      },
     });
 
     // Send message with audio
@@ -119,68 +119,12 @@ app.post("/api/audio", upload.single("audio"), async (req, res) => {
     res.json({
       conversationId,
       text,
-      language, // Send detected language to frontend
+      language,
     });
   } catch (error) {
     console.error("Error processing audio:", error);
     res.status(500).json({
       error: "Error processing audio",
-    });
-  }
-});
-
-// Text endpoint for testing
-app.post("/api/text", async (req, res) => {
-  try {
-    const { text, conversationId } = req.body;
-
-    if (!text) {
-      return res.status(400).json({ error: "No text provided" });
-    }
-
-    const id = conversationId || generateConversationId();
-    const history = conversationHistory.get(id) || [];
-
-    const model = genAI.getGenerativeModel({ model: modelName });
-
-    // Start chat with history and system instructions
-    const chat = model.startChat({
-      history: [
-        {
-          role: "user",
-          parts: [{ text: SYSTEM_INSTRUCTIONS }],
-        },
-        {
-          role: "model",
-          parts: [
-            {
-              text: "Understood. I will provide information about Revolt Motors in the requested language.",
-            },
-          ],
-        },
-        ...history,
-      ],
-    });
-
-    const result = await chat.sendMessage(text);
-    const response = await result.response;
-    const responseText = response.text();
-
-    // Detect language
-    const isHindi = /[\u0900-\u097F]/.test(responseText);
-    const language = isHindi ? "hi-IN" : "en-US";
-
-    conversationHistory.set(id, await chat.getHistory());
-
-    res.json({
-      conversationId: id,
-      text: responseText,
-      language,
-    });
-  } catch (error) {
-    console.error("Error processing text:", error);
-    res.status(500).json({
-      error: "Error processing text",
     });
   }
 });
