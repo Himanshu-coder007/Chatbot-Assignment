@@ -78,6 +78,11 @@
       padding: 5px 10px;
       font-size: 0.8em;
     }
+    .language-indicator {
+      font-size: 0.8em;
+      color: #666;
+      margin-left: 5px;
+    }
   </style>
 </head>
 <body>
@@ -104,6 +109,7 @@
     let conversationId = null;
     let synth = window.speechSynthesis;
     let utterance = null;
+    let currentLanguage = 'en-US';
 
     document.getElementById("startRecording").addEventListener("click", startRecording);
     document.getElementById("stopRecording").addEventListener("click", stopRecording);
@@ -113,25 +119,32 @@
 
     // Initial bot greeting
     window.addEventListener('DOMContentLoaded', () => {
-      const greeting = "Hello! I'm your Revolt Motors assistant. Ask me anything about our electric motorcycles.";
+      const greeting = "Hello! I'm your Revolt Motors assistant. Ask me anything about our electric motorcycles in any language.";
       addMessageToConversation(greeting, false);
-      speakText(greeting);
+      speakText(greeting, 'en-US');
     });
 
-    function speakText(text) {
+    function speakText(text, lang) {
       // Cancel any ongoing speech
       synth.cancel();
       
       // Create a new utterance
       utterance = new SpeechSynthesisUtterance(text);
       
+      // Set language
+      utterance.lang = lang || currentLanguage;
+      
       // Configure voice options
       const voices = synth.getVoices();
       const preferredVoice = voices.find(voice => 
-        voice.name.includes('English') || voice.lang.includes('en')
+        voice.lang === utterance.lang || 
+        voice.lang.startsWith(utterance.lang.split('-')[0])
       );
+      
       if (preferredVoice) {
         utterance.voice = preferredVoice;
+      } else {
+        console.warn(`No voice found for language ${utterance.lang}, using default`);
       }
       
       utterance.rate = 1.0;
@@ -173,7 +186,8 @@
       } else {
         const lastBotMessage = document.querySelector('.bot-message:last-child');
         if (lastBotMessage) {
-          speakText(lastBotMessage.textContent);
+          const lang = lastBotMessage.dataset.lang || 'en-US';
+          speakText(lastBotMessage.textContent, lang);
         }
       }
     }
@@ -231,11 +245,20 @@
       document.getElementById("stopRecording").disabled = true;
     }
 
-    function addMessageToConversation(text, isUser) {
+    function addMessageToConversation(text, isUser, language) {
       const conversationDiv = document.getElementById("conversation");
       const messageDiv = document.createElement("div");
       messageDiv.className = `message ${isUser ? 'user-message' : 'bot-message'}`;
       messageDiv.textContent = text;
+      
+      if (!isUser && language) {
+        messageDiv.dataset.lang = language;
+        const langIndicator = document.createElement("span");
+        langIndicator.className = "language-indicator";
+        langIndicator.textContent = `(${language})`;
+        messageDiv.appendChild(langIndicator);
+      }
+      
       conversationDiv.appendChild(messageDiv);
       conversationDiv.scrollTop = conversationDiv.scrollHeight;
     }
@@ -256,8 +279,7 @@
         });
 
         if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.error || `Server error: ${response.status}`);
+          throw new Error(`Server error: ${response.status}`);
         }
 
         const data = await response.json();
@@ -266,11 +288,11 @@
         if (data.text) {
           conversationId = data.conversationId;
           addMessageToConversation("(Your question about Revolt Motors)", true);
-          addMessageToConversation(data.text, false);
+          addMessageToConversation(data.text, false, data.language);
           document.getElementById("status").textContent = "Ready for your next question";
           
-          // Speak the response
-          speakText(data.text);
+          // Speak the response with the detected language
+          speakText(data.text, data.language);
         } else {
           throw new Error("No response from the assistant");
         }
@@ -283,11 +305,15 @@
     }
 
     // Load voices when they become available
-    if (speechSynthesis.onvoiceschanged !== undefined) {
-      speechSynthesis.onvoiceschanged = () => {
-        console.log("Voices loaded");
-      };
-    }
+    speechSynthesis.onvoiceschanged = function() {
+      console.log("Voices loaded:", speechSynthesis.getVoices());
+    };
+
+    // Some browsers need this to load voices properly
+    setTimeout(() => {
+      const voices = speechSynthesis.getVoices();
+      console.log("Available voices:", voices);
+    }, 1000);
   </script>
 </body>
 </html>

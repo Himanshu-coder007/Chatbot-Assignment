@@ -14,10 +14,10 @@ const port = process.env.PORT || 3000;
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const modelName = "gemini-1.5-flash-latest";
 
-// System instructions to focus on Revolt Motors
+// System instructions to focus on Revolt Motors with multilingual support
 const SYSTEM_INSTRUCTIONS = `
 You are an expert assistant specialized in Revolt Motors, the Indian electric motorcycle company. 
-Your responses should be exclusively about Revolt Motors and its products. 
+Your responses should be exclusively about Revolt Motors and its products.
 
 Key points to focus on:
 - Revolt Motors is India's first AI-enabled electric motorcycle company
@@ -29,7 +29,13 @@ Key points to focus on:
 - Comparison with other electric two-wheelers in India
 - Government incentives for electric vehicles in India
 
-If asked about other topics, politely respond that you specialize only in Revolt Motors and can't discuss other subjects.
+Important:
+1. Respond in the same language the question is asked in
+2. If the language cannot be determined, default to English
+3. For technical specifications, you may include English terms in parentheses
+4. Maintain professional and helpful tone in all languages
+
+If asked about other topics, politely respond that you specialize only in Revolt Motors.
 `;
 
 // Middleware
@@ -56,20 +62,12 @@ function generateConversationId() {
 // Audio processing endpoint
 app.post("/api/audio", upload.single("audio"), async (req, res) => {
   try {
-    console.log("Received audio file:", req.file);
     if (!req.file) {
-      console.error("No audio file in request");
       return res.status(400).json({ error: "No audio file provided" });
     }
 
     const conversationId = req.body.conversationId || generateConversationId();
     const audioFile = req.file;
-
-    console.log("Processing audio file:", {
-      size: audioFile.size,
-      mimeType: audioFile.mimetype,
-      conversationId,
-    });
 
     // Get conversation history or initialize
     const history = conversationHistory.get(conversationId) || [];
@@ -88,7 +86,7 @@ app.post("/api/audio", upload.single("audio"), async (req, res) => {
           role: "model",
           parts: [
             {
-              text: "Understood. I will focus exclusively on providing information about Revolt Motors, their electric motorcycles, and related topics.",
+              text: "Understood. I will provide information about Revolt Motors in the requested language.",
             },
           ],
         },
@@ -97,7 +95,6 @@ app.post("/api/audio", upload.single("audio"), async (req, res) => {
     });
 
     // Send message with audio
-    const startTime = Date.now();
     const result = await chat.sendMessage([
       {
         inlineData: {
@@ -106,28 +103,28 @@ app.post("/api/audio", upload.single("audio"), async (req, res) => {
         },
       },
     ]);
-    const endTime = Date.now();
-
-    console.log(`Response time: ${endTime - startTime}ms`);
 
     // Get response
     const response = await result.response;
     const text = response.text();
 
+    // Detect language (simple check for Hindi)
+    const isHindi = /[\u0900-\u097F]/.test(text);
+    const language = isHindi ? "hi-IN" : "en-US";
+
     // Update conversation history
     conversationHistory.set(conversationId, await chat.getHistory());
 
-    // Send response
+    // Send response with language info
     res.json({
       conversationId,
       text,
-      responseTime: endTime - startTime,
+      language, // Send detected language to frontend
     });
   } catch (error) {
     console.error("Error processing audio:", error);
     res.status(500).json({
       error: "Error processing audio",
-      details: error.message,
     });
   }
 });
@@ -157,7 +154,7 @@ app.post("/api/text", async (req, res) => {
           role: "model",
           parts: [
             {
-              text: "Understood. I will focus exclusively on providing information about Revolt Motors, their electric motorcycles, and related topics.",
+              text: "Understood. I will provide information about Revolt Motors in the requested language.",
             },
           ],
         },
@@ -165,27 +162,25 @@ app.post("/api/text", async (req, res) => {
       ],
     });
 
-    const startTime = Date.now();
     const result = await chat.sendMessage(text);
-    const endTime = Date.now();
-
-    console.log(`Response time: ${endTime - startTime}ms`);
-
     const response = await result.response;
     const responseText = response.text();
+
+    // Detect language
+    const isHindi = /[\u0900-\u097F]/.test(responseText);
+    const language = isHindi ? "hi-IN" : "en-US";
 
     conversationHistory.set(id, await chat.getHistory());
 
     res.json({
       conversationId: id,
       text: responseText,
-      responseTime: endTime - startTime,
+      language,
     });
   } catch (error) {
     console.error("Error processing text:", error);
     res.status(500).json({
       error: "Error processing text",
-      details: error.message,
     });
   }
 });
