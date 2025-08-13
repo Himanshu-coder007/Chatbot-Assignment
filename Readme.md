@@ -1,4 +1,4 @@
-Here’s your `README.md` based on what you said:
+
 
 ````markdown
 # Revolt Motors Voice Assistant
